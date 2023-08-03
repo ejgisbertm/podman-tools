@@ -1,0 +1,41 @@
+#!/bin/bash
+
+container_node="$(printf '1%04d\n' $((RANDOM % 9999 + 1)))"
+
+function show_help() {
+  echo "Quickly creates a containers from a valid image."
+  echo "Usage:"
+  printf '  %s name [<arguments>]\n' "$(basename "$0")"
+  printf '  %s help\n' "$(basename "$0")"
+  cat <<EOF
+Where:
+  name           Specifies the image to use for creating the container.
+  [<arguments>]  If specified, these arguments are passed to the container (optional).
+  help           Shows this help message.
+Examples:
+EOF
+  printf '  %s alpine\n' "$(basename "$0")"
+  printf '  %s alpine:latest\n' "$(basename "$0")"
+  printf '  %s alpine:latest /bin/sh\n' "$(basename "$0")"
+}
+
+function quick_container() {
+  podman run --rm -it --name container-"${container_node}" \
+    -p "${container_node}":8080 \
+    "$@"
+}
+
+case $1 in
+-h | --help | help)
+  show_help
+  ;;
+"")
+  echo "You must specify a valid image name."
+  exit 1
+  ;;
+*)
+  quick_container "$@"
+  ;;
+esac
+
+exit 0

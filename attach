@@ -1,0 +1,43 @@
+#!/bin/bash
+
+function show_help() {
+  echo "Attaches a shell instance to a running container."
+  echo "Usage:"
+  printf '  %s name [<arguments>]\n' "$(basename "$0")"
+  printf '  %s help\n' "$(basename "$0")"
+  cat <<EOF
+Where:
+  name           Specifies the container to attach the shell to.
+  [<arguments>]  If specified, these arguments are passed to the container (optional).
+  help           Shows this help message.
+Examples:
+EOF
+  container_node="$(printf '1%04d\n' $((RANDOM % 9999 + 1)))"
+  printf '  %s container-%s\n' "$(basename "$0")" "$container_node"
+  printf '  %s container-%s /bin/bash\n' "$(basename "$0")" "$container_node"
+  printf '  %s container-%s apk add bash\n' "$(basename "$0")" "$container_node"
+}
+
+function attach_container() {
+  if [[ -z "$2" ]]; then
+    podman exec -it --user root "$1" /bin/sh
+  else
+    podman exec -it --user root "$@"
+  fi
+
+}
+
+case $1 in
+-h | --help | help)
+  show_help
+  ;;
+"")
+  echo "You must specify a running container."
+  exit 1
+  ;;
+*)
+  attach_container "$@"
+  ;;
+esac
+
+exit 0
