@@ -1,0 +1,120 @@
+#!/bin/bash
+
+dependency_name=false
+single_instance=true
+exposed_service=false
+interactive_cli=false
+
+container_name=$(basename "$0" | cut -d'-' -f2-)
+container_number="$(printf '1%04d\n' $((RANDOM % 9999 + 1)))"
+
+case $interactive_cli in
+true)
+  console_mode="-it"
+  ;;
+false)
+  console_mode="-d"
+  ;;
+esac
+
+function main() {
+  hazelcast_avaliable=true
+  if podman ps | grep -q "hazelcast-mc"; then
+    hazelcast_mc=$(podman ps | grep "hazelcast-mc" | awk '{print $1}' | tr -d ' ')
+    hazelcast_mc=$(podman inspect "${hazelcast_mc}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+    hazelcast_imdg=$((hazelcast_mc + 1))
+    if podman ps | grep -q "hazelcast-imdg-${hazelcast_imdg}"; then
+      : #skip
+    else
+      hazelcast_imdg_instance="${hazelcast_imdg}"
+      hazelcast_mc_instance="${hazelcast_mc}"
+      hazelcast_avaliable="false"
+    fi
+  fi
+  if [[ "$hazelcast_avaliable" == "true" ]]; then
+    hazelcast_imdg_instance="$(printf '1%04d\n' $((RANDOM % 9999 + 1)))"
+    if podman ps | grep -q "hazelcast-mc"; then
+      hazelcast_mc=$(podman ps | grep "hazelcast-mc" | awk '{print $1}' | tr -d ' ')
+      hazelcast_mc_instance=$(podman inspect "${hazelcast_mc}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+    else
+      hazelcast_mc_instance=$((hazelcast_imdg_instance - 1))
+    fi
+  fi
+  container_number=$hazelcast_imdg_instance
+  podman run --rm "$console_mode" --name hazelcast-imdg-"${hazelcast_imdg_instance}" \
+    -p "${hazelcast_imdg_instance}":5701 \
+    -e "HZ_CLUSTERNAME=hazelcast-cluster" \
+    -e "MANCENTER_URL=http://host.containers.internal:${hazelcast_mc_instance}/hazelcast-mancenter" \
+    hazelcast/hazelcast "$@"
+  sleep 5
+}
+
+function service_cleanup() {
+  true
+}
+
+function check_dependencies() {
+  if podman ps | grep -q "${1}-"; then
+    dependency_master=$(podman ps | grep "${1}-" | awk '{print $1}' | head -1 | tr -d ' ')
+    dependency_master=$(podman inspect "${dependency_master}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+  else
+    echo "This container requieres at least one instance of ${1} already running, but none was found."
+    exit 1
+  fi
+}
+
+function check_instance() {
+  #  if podman ps | grep -q "${container_name}-"; then
+  #    container_number=$(podman ps | grep "${container_name}-" | awk '{print $1}' | head -1 | tr -d ' ')
+  #    container_number=$(podman inspect "${container_number}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+  #    printf 'There is already one %s instance running at http://localhost:%s\n' "${container_name}" "${container_number}"
+  #    exit 1
+  #  fi
+  if podman ps | grep -q "hazelcast-imdg"; then
+    hazelcast_count=$(podman ps | grep -c "hazelcast-imdg")
+    if [[ $hazelcast_count -gt 2 ]]; then
+      echo "There are already 3 instances of Hazelcast IMDG running."
+      exit 1
+    fi
+  fi
+}
+
+function check_endpoint() {
+  check_iterations=0
+  while [[ $check_iterations -lt 5 ]]; do
+    curl -ksS "http://localhost:${container_number}" >/dev/null 2>&1
+    endpoint_status=$?
+    if [[ $endpoint_status -eq 0 ]]; then
+      check_iterations=$((check_iterations + 1))
+    fi
+    sleep 1
+  done
+}
+
+if [[ $dependency_name != false ]]; then
+  check_dependencies $dependency_name
+fi
+
+if [[ $single_instance != false ]]; then
+  check_instance
+fi
+
+echo "Starting ${container_name}..."
+main "$@"
+
+if [[ $exposed_service != false ]]; then
+  check_endpoint
+fi
+
+service_cleanup
+
+if [[ $interactive_cli == false ]]; then
+  echo "Done"
+  echo "Container name: ${container_name}-${container_number}"
+fi
+
+if [[ $exposed_service != false ]]; then
+  echo "Endpoint: http://localhost:${container_number}"
+fi
+
+exit 0
