@@ -1,0 +1,85 @@
+#!/bin/bash
+
+back_end=alpine
+front_end=alpine
+
+cluster_name=$(basename "$0" | cut -d'-' -f2-)
+
+function main() {
+  case $1 in
+  --start)
+    cluster_start
+    exit 0
+    ;;
+  --stop)
+    cluster_stop
+    exit 0
+    ;;
+  --status)
+    cluster_details
+    exit 0
+    ;;
+  "")
+    echo "You must specify an action to perform."
+    echo "Available actions are: start|stop|status"
+    exit 1
+    ;;
+  *)
+    echo "Unknown action."
+    exit 1
+    ;;
+  esac
+}
+
+function cluster_start() {
+  if [[ $(containers | grep "$cluster_name" | awk '{print $2}') ]]; then
+    echo "There are already $cluster_name nodes running, cannot start a new cluster."
+    exit 1
+  fi
+  echo "Starting $cluster_name cluster..."
+  for i in {1..3}; do
+    echo "Initializing node #${i}..."
+    container $back_end
+  done
+  echo "Initializing front end..."
+  container $front_end
+  echo "Done."
+  cluster_details
+}
+
+function cluster_stop() {
+  if [[ ! $(containers | grep "$cluster_name" | awk '{print $2}') ]]; then
+    echo "There are no $cluster_name nodes running, no cluster to stop."
+    exit 1
+  fi
+  echo "Stopping $cluster_name cluster..."
+  echo "Shutting down front end..."
+  podman stop "$(containers | grep "$front_end" | awk '{print $2}')"
+  echo "Shutting down $cluster_name nodes..."
+  for i in $(containers | grep "$back_end" | awk '{print $2}'); do
+    podman stop "$i"
+  done
+  echo "Cleaning up any leftovers..."
+  sleep 3
+  for i in $(containers | grep "$back_end" | awk '{print $2}'); do
+    podman stop "$i" >/dev/null 2>&1
+  done
+  echo "Done."
+}
+
+function cluster_details() {
+  if [[ ! $(containers | grep "$cluster_name" | awk '{print $2}') ]]; then
+    echo "There are no $cluster_name nodes running, can't list cluster details."
+    exit 1
+  fi
+  echo "Cluster details:"
+  echo "Nodes:"
+  for i in $(containers | grep "$back_end" | awk '{print $2}'); do
+    echo " - ${i}"
+  done
+  front_node=$(containers | grep "$front_end" | awk '{print $2}')
+  front_port=$(echo "$front_node" | cut -d'-' -f2)
+  echo "Front end: ${front_node} (http://localhost:${front_port})"
+}
+
+main "$@"

@@ -1,0 +1,72 @@
+#!/bin/bash
+
+script_name=$(readlink -f "$0")
+script_path=$(dirname "$script_name")
+
+function main() {
+  case $* in
+  help | --help | -h)
+    show_help
+    exit 0
+    ;;
+  list)
+    list_templates
+    exit 0
+    ;;
+  "")
+    echo "You must specify an template."
+    exit 1
+    ;;
+  *)
+    load_template "$1" "${*:2}"
+    ;;
+  esac
+}
+
+function list_templates() {
+  echo "Available templates:"
+  for templates in "${script_path}"/templates/container-*; do
+    template=$(basename "$templates")
+    template=$(printf '%s\n' "${template//container-/}")
+    echo "  - ${template}"
+  done
+}
+
+function load_template() {
+  # shellcheck disable=SC2086
+  if [[ -f "${script_path}"/templates/container-"${1}" ]]; then
+    "${script_path}"/templates/container-"${1}" $2
+    exit $?
+  else
+    echo "template ${1} not available."
+    exit 1
+  fi
+}
+
+function show_help() {
+  echo "Creates ephemeral containers using template scripts."
+  echo "Usage:"
+  printf '  %s template [<arguments>]\n' "$(basename "$0")"
+  printf '  %s (list|help)\n' "$(basename "$0")"
+  cat <<EOF
+Where:
+  template     Specifies the template to use.
+  <arguments>  If specified, these arguments are passed to the container (optional).
+  list         Shows available templates.
+  help         Shows this help message.
+Examples:
+EOF
+  for i in {1..3}; do
+    random_type=$($0 list | grep -v "Available" | sort -R | head -1 | cut -d'-' -f2)
+    random_action="$((RANDOM % 6 + 1))"
+    case $random_action in
+    1) random_action="ls /" ;;
+    2) random_action="/bin/sh" ;;
+    3 | 4 | 5 | 6) random_action="" ;;
+    esac
+    printf '  %s%s %s\n' "$(basename "$0")" "$random_type" "$random_action"
+  done
+  echo "$i" >/dev/null
+}
+
+main "$@"

@@ -1,0 +1,72 @@
+#!/bin/bash
+
+script_name=$(readlink -f "$0")
+script_path=$(dirname "$script_name")
+
+function main() {
+  case $* in
+  help | --help | -h)
+    show_help
+    exit 0
+    ;;
+  list)
+    list_clusters
+    exit 0
+    ;;
+  "")
+    echo "You must specify a cluster."
+    exit 1
+    ;;
+  *)
+    load_cluster "$1" "$2"
+    ;;
+  esac
+}
+
+function list_clusters() {
+  echo "Available clusters:"
+  for clusters in "${script_path}"/templates/cluster-*; do
+    cluster=$(basename "$clusters")
+    cluster=$(printf '%s\n' "${cluster//cluster-/}")
+    echo "  - ${cluster}"
+  done
+}
+
+function load_cluster() {
+  # shellcheck disable=SC2086
+  if [[ -f "${script_path}"/templates/cluster-"${1}" ]]; then
+    "${script_path}"/templates/cluster-"${1}" $2
+    exit $?
+  else
+    echo "Cluster template ${1} not available."
+    exit 1
+  fi
+}
+
+function show_help() {
+  echo "Manages ephemeral clusters using template scripts."
+  echo "Usage:"
+  printf '  %s template --action\n' "$(basename "$0")"
+  printf '  %s (list|help)\n' "$(basename "$0")"
+  cat <<EOF
+Where:
+  template  Specifies the template of cluster to use. You must supply an action.
+  --action  It must be one of: --start, --stop or --status
+  list      Shows available cluster templates.
+  help      Shows this help message.
+Examples:
+EOF
+  for i in {1..3}; do
+    random_template=$($0 list | grep -v "Available" | sort -R | head -1 | cut -d'-' -f2)
+    random_action="$((RANDOM % 3 + 1))"
+    case $random_action in
+    1) random_action="start" ;;
+    2) random_action="stop" ;;
+    3) random_action="status" ;;
+    esac
+    printf '  %s%s --%s\n' "$(basename "$0")" "$random_template" "$random_action"
+  done
+  echo "$i" >/dev/null
+}
+
+main "$@"

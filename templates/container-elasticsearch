@@ -1,0 +1,127 @@
+#!/bin/bash
+
+dependency_name=true
+single_instance=false
+exposed_service=true
+interactive_cli=false
+
+container_name=$(basename "$0" | cut -d'-' -f2-)
+container_number="$(printf '1%04d\n' $((RANDOM % 9999 + 1)))"
+
+case $interactive_cli in
+true)
+  console_mode="-it"
+  ;;
+false)
+  console_mode="-d"
+  ;;
+esac
+
+function main() {
+  if [[ ! -f "${PWD}/elasticsearch-${container_number}.yml" ]]; then
+    touch "${PWD}/elasticsearch-${container_number}.yml"
+    cat <<EOF >"${PWD}/elasticsearch-${container_number}.yml"
+http:
+  cors.allow-origin: "*"
+  cors.enabled: true
+  cors.allow-methods: OPTIONS, HEAD, GET, POST, PUT, DELETE
+  cors.allow-headers: X-Requested-With,X-Auth-Token,Content-Type,Content-Length
+EOF
+  fi
+  if podman ps | grep -q "elasticsearch-"; then
+    elasticsearch_master=$(podman ps | grep "elasticsearch-" | awk '{print $1}' | head -1 | tr -d ' ')
+    elasticsearch_master=$(podman inspect "${elasticsearch_master}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+    podman run --rm "$console_mode" --name elasticsearch-"${container_number}" \
+      -p "${container_number}":9200 \
+      -e "ELASTICSEARCH_CLUSTER_NAME=elasticsearch-cluster" \
+      -e "ELASTICSEARCH_NODE_NAME=elasticsearch-${container_number}" \
+      -e "ELASTICSEARCH_CLUSTER_HOSTS=elasticsearch-${elasticsearch_master}" \
+      -e "ELASTICSEARCH_CLUSTER_MASTER_HOSTS=elasticsearch-${elasticsearch_master}" \
+      -v "${PWD}/elasticsearch-${container_number}.yml:/opt/bitnami/elasticsearch/config/my_elasticsearch.yml" \
+      --network elasticsearch \
+      bitnami/elasticsearch "$@"
+  else
+    podman run --rm "$console_mode" --name elasticsearch-"${container_number}" \
+      -p "${container_number}":9200 \
+      -e "ELASTICSEARCH_CLUSTER_NAME=elasticsearch-cluster" \
+      -e "ELASTICSEARCH_NODE_NAME=elasticsearch-${container_number}" \
+      -e "ELASTICSEARCH_CLUSTER_HOSTS=elasticsearch-${container_number}" \
+      -e "ELASTICSEARCH_CLUSTER_MASTER_HOSTS=elasticsearch-${container_number}" \
+      -v "${PWD}/elasticsearch-${container_number}.yml:/opt/bitnami/elasticsearch/config/my_elasticsearch.yml" \
+      --network elasticsearch \
+      bitnami/elasticsearch "$@"
+  fi
+}
+
+function service_cleanup() {
+  if [[ -f "${PWD}/elasticsearch-${container_number}.yml" ]]; then
+    rm -f "${PWD}/elasticsearch-${container_number}.yml"
+  fi
+}
+
+function check_dependencies() {
+  #  if podman ps | grep -q "${1}-"; then
+  #    dependency_master=$(podman ps | grep "${1}-" | awk '{print $1}' | head -1 | tr -d ' ')
+  #    dependency_master=$(podman inspect "${dependency_master}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+  #  else
+  #    echo "This container requieres at least one instance of ${1} already running, but none was found."
+  #    exit 1
+  #  fi
+  podman_vmmax=$(podman machine ssh sudo sysctl -a | grep "vm.max_map_count" | awk '{print $3}')
+  if [[ $podman_vmmax -lt 262144 ]]; then
+    podman machine ssh sudo sysctl -w vm.max_map_count=262144
+  fi
+  if podman network inspect elasticsearch >/dev/null 2>&1; then
+    : # skip
+  else
+    podman network create elasticsearch
+  fi
+}
+
+function check_instance() {
+  if podman ps | grep -q "${container_name}-"; then
+    container_number=$(podman ps | grep "${container_name}-" | awk '{print $1}' | head -1 | tr -d ' ')
+    container_number=$(podman inspect "${container_number}" | grep -i "hostport" | uniq | tr -d '" ' | cut -d':' -f2)
+    printf 'There is already one %s instance running at http://localhost:%s\n' "${container_name}" "${container_number}"
+    exit 1
+  fi
+}
+
+function check_endpoint() {
+  check_iterations=0
+  while [[ $check_iterations -lt 5 ]]; do
+    curl -ksS "http://localhost:${container_number}" >/dev/null 2>&1
+    endpoint_status=$?
+    if [[ $endpoint_status -eq 0 ]]; then
+      check_iterations=$((check_iterations + 1))
+    fi
+    sleep 1
+  done
+}
+
+if [[ $dependency_name != false ]]; then
+  check_dependencies $dependency_name
+fi
+
+if [[ $single_instance != false ]]; then
+  check_instance
+fi
+
+echo "Starting ${container_name}..."
+main "$@"
+
+if [[ $exposed_service != false ]]; then
+  check_endpoint
+fi
+
+service_cleanup
+
+if [[ $interactive_cli == false ]]; then
+  echo "Done"
+  echo "Container name: ${container_name}-${container_number}"
+fi
+if [[ $exposed_service != false ]]; then
+  echo "Endpoint: http://localhost:${container_number}"
+fi
+
+exit 0

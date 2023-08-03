@@ -1,0 +1,30 @@
+#!/bin/bash
+
+function show_help() {
+  echo "Shows running containers."
+  echo "Usage:"
+  printf '  %s [name]\n' "$(basename "$0")"
+  printf '  %s help\n' "$(basename "$0")"
+  cat <<EOF
+Where:
+  name  Filters running containers by name (optional).
+  help  Shows this help message.
+Examples:
+EOF
+  printf '  %s foobar\n' "$(basename "$0")"
+  printf '  %s\n' "$(basename "$0")"
+}
+
+case $1 in
+-h | --help | help)
+  show_help
+  ;;
+"")
+  podman ps --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}'
+  ;;
+*)
+  podman ps --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}' | grep --color=always "$1"
+  ;;
+esac
+
+exit $?
